@@ -5,19 +5,14 @@ import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.concurrent.Semaphore;
 
 public class GraphSearch<T> {
 	
 	private int algo;
-	private int mode;
 	private boolean GoalFound = false;
 	private T FinalState;
 	private boolean TerminateSearch = false;	
 	private ArrayList<T> VisitedStates; 
-	private Semaphore semMoveControl;	
-	
-	private int Status = STATUS.UNINITIALIZED;
 	
 	public class Statistics {
 		public Statistics() {
@@ -61,26 +56,10 @@ public class GraphSearch<T> {
 		   public static final int IDS = 2;
 		   public static final int ASTAR = 3;
 	}
-
-	public class MODE{
-		   public static final int CONTINUOUS = 0;
-		   public static final int SINGLESTEP = 1;;
-	}
-	
-	public class STATUS{
-		   public static final int UNINITIALIZED = 0;
-		   public static final int RUNNING = 1;
-		   public static final int STOPPED = 2;;
-		   public static final int PAUSED = 3;
-		   public static final int FINISHED = 4;
-	}
 	
 	/* Constructor  */
-	public GraphSearch(int algo, int mode) {
+	public GraphSearch(int algo) {
 		this.algo = algo;
-		this.mode = mode;
-		
-		semMoveControl = new Semaphore(1);	/* binary semaphore */
 	}
 	
 	public class CostComparator implements Comparator<GraphSearch<T>.PriorityQueueItem> {
@@ -107,7 +86,6 @@ public class GraphSearch<T> {
 		queue.addFirst(root);
 		while(!queue.isEmpty()) {
 			node = queue.remove();
-			SetState(node);
 			SearchStat.nStateTransitions++;
 			
 			/*
@@ -117,20 +95,6 @@ public class GraphSearch<T> {
 				GoalFound = true;
 				FinalState = node;
 				return;
-			}
-		
-			
-			/*
-			 * In batch mode, for next move wait user command
-			 */
-			if(mode == MODE.SINGLESTEP) {
-				try {
-					Status = STATUS.PAUSED;
-					semMoveControl.acquire();
-					Status = STATUS.RUNNING;
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
 			}
 			
 			/*
@@ -170,7 +134,6 @@ public class GraphSearch<T> {
 		/* save visited states to detect loops */
 		VisitedStates.add(root);
 		
-		SetState(root);
 		SearchStat.nStateTransitions++;
 		
 		/*
@@ -180,19 +143,6 @@ public class GraphSearch<T> {
 			GoalFound = true;
 			FinalState = root;
 			return;
-		}
-		
-		/*
-		 * In batch mode, for next move wait user command
-		 */
-		if(mode == MODE.SINGLESTEP) {
-			try {
-				Status = STATUS.PAUSED;
-				semMoveControl.acquire();
-				Status = STATUS.RUNNING;
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
 		}
 		
 		/*
@@ -221,7 +171,6 @@ public class GraphSearch<T> {
 			return;
 		}
 			
-		SetState(root);
 		SearchStat.nStateTransitions++;
 		
 		/*
@@ -231,19 +180,6 @@ public class GraphSearch<T> {
 			GoalFound = true;
 			FinalState = root;
 			return;
-		}
-
-		/*
-		 * In batch mode, for next move wait user command
-		 */
-		if(mode == MODE.SINGLESTEP) {
-			try {
-				Status = STATUS.PAUSED;
-				semMoveControl.acquire();
-				Status = STATUS.RUNNING;
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
 		}
 		
 		/* Get successor states  */
@@ -294,9 +230,6 @@ public class GraphSearch<T> {
 		while(!queue.isEmpty()) {
 			
 			currNode = queue.remove().state;
-			
-			/* FIXME: Use an event listener instead */
-			SetState(currNode);
 			SearchStat.nStateTransitions++;
 			
 			/*
@@ -309,19 +242,6 @@ public class GraphSearch<T> {
 			}
 			
 			VisitedStates.add(currNode);
-			
-			/*
-			 * In batch mode, for next move wait user command
-			 */
-			if(mode == MODE.SINGLESTEP) {	/* FIXME: Remove this */
-				try {
-					Status = STATUS.PAUSED;
-					semMoveControl.acquire();
-					Status = STATUS.RUNNING;
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
-			}
 			
 			/*
 			 * Get successor states and push them to queue 
@@ -350,18 +270,11 @@ public class GraphSearch<T> {
 		
 	}
 	
-	public int Iterate() {
-		semMoveControl.release();
-		return 0;
-	}
-	
 	public void Solve(T InitialState) {
 		
 		SearchStat = new Statistics();
 		TerminateSearch = false;
 		VisitedStates = new ArrayList<T>();
-		
-		Status = STATUS.RUNNING;
 		
 		long stime = System.nanoTime();
 		
@@ -375,8 +288,6 @@ public class GraphSearch<T> {
 			AStar(InitialState);
 		}
 		
-		Status = STATUS.FINISHED;
-		
 		SearchStat.msExecTime = (double)(System.nanoTime() - stime)/1000000;
 		
 		return;
@@ -386,19 +297,10 @@ public class GraphSearch<T> {
 		return SearchStat;
 	}
 	
-	public void setMode(int mode) {
-		this.mode = mode;
-	}
-	
-	public int getStatus() {
-		return Status;
-	}
-	
 	/*
 	 * These functions need to be overrided accordingly 
 	 */
 	public ArrayList<T> Successor() {return null;};
-	public void SetState(T state) {};
 	public int getHeuristicCost (T state) {return 0;}
 	public boolean IsGoalReached(T state) {return false;}
 	public boolean IsLoopExist(T state, ArrayList<T> VisitedStates) {return false;}

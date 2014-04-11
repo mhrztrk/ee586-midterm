@@ -4,19 +4,19 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GridLayout;
-import java.awt.SystemColor;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Semaphore;
+
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 import javax.swing.border.BevelBorder;
 
+import puzzle.Puzzle.PuzzleSolver.STATUS;
 import lib.GraphSearch;
 import lib.GraphSearch.ALGO;
-import lib.GraphSearch.MODE;
-import lib.GraphSearch.STATUS;
 
 
 
@@ -40,6 +40,7 @@ public class Puzzle {
 	private boolean SearchInProgress = false;
 	private int IterationCount = 0;
 	private Statistics SolStatistic; 
+	private Semaphore semMoveControl;	
 	
 	public class Statistics {
 		public int StateTransitionCnt;
@@ -110,9 +111,19 @@ public class Puzzle {
 	public class PuzzleSolver extends  GraphSearch<PuzzleState> {
 
 		public int heuristic = HEURISTIC.MISPLACED;
+		private int SearchStatus = STATUS.UNINITIALIZED;
 		
 		public PuzzleSolver(int algo, int mode) {
-			super(algo, mode);
+			super(algo);
+			semMoveControl = new Semaphore(1);	/* binary semaphore */
+		}
+		
+		public class STATUS{
+			   public static final int UNINITIALIZED = 0;
+			   public static final int RUNNING = 1;
+			   public static final int STOPPED = 2;;
+			   public static final int PAUSED = 3;
+			   public static final int FINISHED = 4;
 		}
 		
 		public class HEURISTIC {
@@ -195,23 +206,40 @@ public class Puzzle {
 			return false;
 		}
 		
-		@Override
-		public void SetState(PuzzleState State) {
-			if(State != null) {
-				//UpdateState(State);
-				MoveState(State);
-			}
-		};
+		public int getStatus() { 
+			return SearchStatus;
+		}
 		
 		@Override
 		public boolean IsGoalReached(PuzzleState State) {
 			
+			/* Perform state transition */
+			SetState(State);
+			
+			boolean found = true;
 			for (int i = 0; i < CurrState.list.size(); i++) {
 				if (CurrState.list.get(i) != i) {
-					return false;
+					found = false;
+					break;
 				}
 			}
-			return true;
+			
+			if(!found) {
+				/*
+				 * In batch mode, for next move wait user command
+				 */
+				if(SearchMode == MODE.SINGLESTEP) {
+					try {
+						SearchStatus = STATUS.PAUSED;
+						semMoveControl.acquire();
+						SearchStatus = STATUS.RUNNING;
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+				}
+			}
+			
+			return found;
 		}
 		
 		@Override
@@ -307,7 +335,7 @@ public class Puzzle {
 		}
 	}
 	
-	public void MoveState(PuzzleState State) {
+	public void SetState(PuzzleState State) {
 		
 		if(CurrState == State) {
 			return;
@@ -431,6 +459,11 @@ public class Puzzle {
 		TileLoc Loc;
 	}
 	
+	public class MODE{
+		   public static final int CONTINUOUS = 0;
+		   public static final int SINGLESTEP = 1;;
+	}
+	
 	public class DIR {
 		   public static final int WEST = 0;
 		   public static final int NORTH = 1;
@@ -467,7 +500,7 @@ public class Puzzle {
 				TileObjects[i].setBorder(new BevelBorder(BevelBorder.RAISED, Color.BLACK, null, null, null));
 				TileObjects[i].setText(Integer.toString(i+1));
 				TileObjects[i].setOpaque(true);
-				TileObjects[i].setBackground(SystemColor.activeCaption);
+				TileObjects[i].setBackground(new Color(72, 209, 204));
 			}
 			
 			pnPuzzleTiles[panelno].add(TileObjects[i]);
@@ -661,10 +694,7 @@ public class Puzzle {
 			Log(String.format("Puzzle solved... (" +
 					"# of state traversed = %d | # of tiles moved = %d | Solution Length = %d | " +
 					"Exec Time = %.2f ms)\n", solver.getStatistics().nStateTransitions,
-					TileMoveCnt, Solution.size()-1, solver.getStatistics().msExecTime));
-			
-			// System.out.printf("# of state trans.   = %d\n", solver.getStatistics().nStateTransitions);
-			// System.out.printf("# of detected loops = %d\n", solver.getStatistics().nDetectedLoops);			
+					TileMoveCnt, Solution.size()-1, solver.getStatistics().msExecTime));		
 			
 			SolStatistic.StateTransitionCnt = solver.getStatistics().nStateTransitions;
 			SolStatistic.SolutionLength = (Solution.size()-1);
@@ -722,17 +752,15 @@ public class Puzzle {
 	}
 
 	public void Iterate(int N) {
-		int state;
 		if (SearchMode == MODE.SINGLESTEP) {
 			while(N-- > 0) {
 				do{
-					state = solver.getStatus();
-					if(state == STATUS.FINISHED) {
+					if(solver.getStatus() == STATUS.FINISHED) {
 						return;
 					}
-				} while(state != STATUS.PAUSED);
+				} while(solver.getStatus() != STATUS.PAUSED);
 				
-				solver.Iterate();
+				semMoveControl.release();
 			};
 		}
 	}
@@ -763,7 +791,6 @@ public class Puzzle {
 
 	public void setRunMode(int mode) {
 		SearchMode = mode;
-		solver.setMode(mode);
 	}
 	
 	public boolean IsSearchInProgress() {

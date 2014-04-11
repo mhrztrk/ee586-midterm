@@ -48,11 +48,10 @@ import javax.swing.event.ChangeListener;
 
 import puzzle.Puzzle;
 import puzzle.Puzzle.DIR;
+import puzzle.Puzzle.MODE;
 import puzzle.Puzzle.PuzzleListener;
 import puzzle.Puzzle.PuzzleSolver.HEURISTIC;
-
 import lib.GraphSearch.ALGO;
-import lib.GraphSearch.MODE;
 
 public class PuzzleGUI {
 	
